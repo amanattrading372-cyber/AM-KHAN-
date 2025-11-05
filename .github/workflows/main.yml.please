@@ -1,0 +1,31 @@
+name: "Enable RDP on Remote Windows"
+
+# Use single-line array style to avoid accidental indentation errors
+on: [workflow_dispatch]
+
+jobs:
+  enable-rdp:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable RDP on remote Windows via SSH
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.RDP_HOST }}
+          username: ${{ secrets.RDP_USER }}
+          key: ${{ secrets.RDP_SSH_KEY }}
+          port: ${{ secrets.RDP_SSH_PORT }}
+          script: |
+            powershell -NoProfile -NonInteractive -Command "
+              Write-Output '--- enabling rdp ---';
+              Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server' -Name 'fDenyTSConnections' -Value 0 -ErrorAction Stop;
+              Try {
+                Enable-NetFirewallRule -DisplayGroup 'Remote Desktop' -ErrorAction Stop;
+                Write-Output 'Firewall rules enabled';
+              } Catch {
+                Get-NetFirewallRule -DisplayName '*Remote Desktop*' | Enable-NetFirewallRule -ErrorAction SilentlyContinue;
+              }
+              $svc = Get-Service -Name TermService -ErrorAction Stop;
+              If ($svc.Status -ne 'Running') { Start-Service -Name TermService -ErrorAction Stop; Write-Output 'TermService started'; }
+              Restart-Service -Name TermService -Force -ErrorAction SilentlyContinue;
+              Write-Output 'RDP should now be enabled';
+            "
