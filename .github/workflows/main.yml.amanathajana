@@ -1,0 +1,37 @@
+name: Enable RDP on Remote Windows
+on:
+  workflow_dispatch:
+
+jobs:
+  enable-rdp:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable RDP on remote Windows via SSH
+        uses: appleboy/ssh-action@v0.1.7
+        with:
+          host: ${{ secrets.RDP_HOST }}
+          username: ${{ secrets.RDP_USER }}
+          key: ${{ secrets.RDP_SSH_KEY }}
+          port: ${{ secrets.RDP_SSH_PORT }}     # optional, default 22
+          script: |
+            # run PowerShell commands on remote Windows via SSH
+            powershell -NoProfile -NonInteractive -Command "
+              Write-Output '--- enabling rdp ---';
+              # Allow RDP connections in registry
+              Set-ItemProperty -Path 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Terminal Server' -Name 'fDenyTSConnections' -Value 0 -ErrorAction Stop;
+              Write-Output 'Registry updated: fDenyTSConnections=0';
+              # Enable Remote Desktop firewall rules (works Windows 8/Server 2012+)
+              Try {
+                Enable-NetFirewallRule -DisplayGroup 'Remote Desktop' -ErrorAction Stop;
+                Write-Output 'Firewall rules enabled';
+              } Catch {
+                Write-Output 'Failed to enable firewall rule by group, trying common names';
+                # fallback rules (common names)
+                Get-NetFirewallRule -DisplayName '*Remote Desktop*' | Enable-NetFirewallRule -ErrorAction SilentlyContinue;
+              }
+              # Ensure TermService is running
+              $svc = Get-Service -Name TermService -ErrorAction Stop;
+              If ($svc.Status -ne 'Running') { Start-Service -Name TermService -ErrorAction Stop; Write-Output 'TermService started'; }
+              Restart-Service -Name TermService -Force -ErrorAction SilentlyContinue;
+              Write-Output 'RDP should now be enabled';
+            "
